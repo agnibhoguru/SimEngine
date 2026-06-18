@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EXCH — Simulated Exchange</title>
+<meta name="description" content="EXCH — A high-performance simulated exchange trading terminal with real-time order book visualization, price charting, and multi-instrument support.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌁</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0D1117;
+    --surface:   #161B22;
+    --border:    #21262D;
+    --border-hi: #30363D;
+    --text:      #E6EDF3;
+    --muted:     #7D8590;
+    --bid:       #1A3A2A;
+    --bid-bar:   #2EA043;
+    --bid-text:  #3FB950;
+    --ask:       #3A1A1A;
+    --ask-bar:   #DA3633;
+    --ask-text:  #F85149;
+    --accent:    #1F6FEB;
+    --accent-hi: #388BFD;
+    --fill-flash:#F0E040;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Inter', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.4;
+    font-feature-settings: 'tnum';
+    overflow: hidden;
+  }
+
+  /* ── TOPBAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 0 16px;
+    height: 40px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .topbar-logo {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.12em;
+    color: var(--text);
+  }
+  .topbar-logo span { color: var(--accent-hi); }
+
+  .instrument-tabs {
+    display: flex;
+    gap: 2px;
+  }
+  .instrument-tab {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 4px 12px;
+    cursor: pointer;
+    color: var(--muted);
+    border: 1px solid transparent;
+    background: none;
+    letter-spacing: 0.05em;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .instrument-tab:hover { color: var(--text); }
+  .instrument-tab.active {
+    color: var(--text);
+    border-color: var(--border-hi);
+    background: var(--bg);
+  }
+
+  .topbar-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--bid-text);
+  }
+  .status-dot.offline { background: var(--ask-text); }
+
+  .participant-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .participant-label span {
+    color: var(--accent-hi);
+  }
+
+  /* ── LAYOUT ── */
+  .workspace {
+    display: grid;
+    grid-template-columns: 240px 1fr 280px;
+    grid-template-rows: 1fr 180px;
+    height: calc(100vh - 40px);
+    gap: 1px;
+    background: var(--border);
+  }
+
+  .panel {
+    background: var(--bg);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .panel-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .panel-meta {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+  }
+
+  /* ── ORDER BOOK ── */
+  .book-panel { grid-column: 1; grid-row: 1; }
+
+  .book-spread-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 12px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .spread-label { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+  .spread-value { font-family: var(--mono); font-size: 11px; color: var(--text); font-weight: 600; }
+  .last-price { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
+  .last-price.up { color: var(--bid-text); }
+  .last-price.down { color: var(--ask-text); }
+
+  .book-side {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .book-side.asks { justify-content: flex-end; }
+  .book-side.bids { justify-content: flex-start; }
+
+  .book-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    padding: 1px 12px;
+    height: 20px;
+    align-items: center;
+    overflow: hidden;
+    cursor: pointer;
+    transition: filter 0.1s;
+  }
+  .book-row:hover { filter: brightness(1.3); }
+
+  .book-row-bar {
+    position: absolute;
+    top: 0; bottom: 0;
+    right: 0;
+    transition: width 0.15s ease;
+    pointer-events: none;
+  }
+  .asks .book-row-bar { background: var(--ask-bar); opacity: 0.18; }
+  .bids .book-row-bar { background: var(--bid-bar); opacity: 0.18; }
+
+  .book-row-price {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    position: relative;
+    z-index: 1;
+  }
+  .asks .book-row-price { color: var(--ask-text); }
+  .bids .book-row-price { color: var(--bid-text); }
+
+  .book-row-qty, .book-row-total {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    text-align: right;
+    position: relative;
+    z-index: 1;
+  }
+  .book-col-headers {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    padding: 4px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .book-col-header {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .book-col-header:not(:first-child) { text-align: right; }
+
+  @keyframes fill-flash {
+    0%   { background: rgba(240,224,64,0.3); }
+    100% { background: transparent; }
+  }
+  .book-row.flashing { animation: fill-flash 0.4s ease-out; }
+
+  /* ── CHART / MAIN ── */
+  .main-panel { grid-column: 2; grid-row: 1; }
+
+  .chart-area {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  canvas#priceChart {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .chart-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--muted);
+  }
+  .chart-empty-icon { font-size: 32px; opacity: 0.3; }
+  .chart-empty-text { font-family: var(--mono); font-size: 11px; letter-spacing: 0.05em; }
+
+  /* instrument summary bar */
+  .instrument-bar {
+    display: flex;
+    gap: 24px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    align-items: center;
+  }
+  .inst-stat { display: flex; flex-direction: column; gap: 1px; }
+  .inst-stat-label { font-family: var(--mono); font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .inst-stat-value { font-family: var(--mono); font-size: 13px; font-weight: 500; color: var(--text); }
+  .inst-stat-value.up { color: var(--bid-text); }
+  .inst-stat-value.down { color: var(--ask-text); }
+
+  /* ── ORDER ENTRY ── */
+  .entry-panel { grid-column: 3; grid-row: 1; }
+
+  .side-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    margin: 12px;
+    flex-shrink: 0;
+  }
+  .side-btn {
+    padding: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    transition: all 0.1s;
+  }
+  .side-btn.buy.active  { background: var(--bid); border-color: var(--bid-bar); color: var(--bid-text); }
+  .side-btn.sell.active { background: var(--ask); border-color: var(--ask-bar); color: var(--ask-text); }
+  .side-btn:hover { color: var(--text); }
+
+  .entry-form {
+    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .field input, .field select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 7px 10px;
+    width: 100%;
+    outline: none;
+    transition: border-color 0.1s;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--muted); }
+
+  .type-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+  }
+  .type-btn {
+    padding: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    transition: all 0.1s;
+    letter-spacing: 0.04em;
+  }
+  .type-btn.active { background: var(--accent); border-color: var(--accent-hi); color: #fff; }
+  .type-btn:hover:not(.active) { color: var(--text); }
+
+  .submit-btn {
+    margin: 12px;
+    padding: 11px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    transition: background 0.1s;
+    flex-shrink: 0;
+  }
+  .submit-btn:hover { background: var(--accent-hi); }
+  .submit-btn.sell-mode { background: var(--ask-bar); }
+  .submit-btn.sell-mode:hover { background: #e84040; }
+
+  /* ── BLOTTER ── */
+  .blotter-panel { grid-column: 1 / 3; grid-row: 2; }
+
+  .blotter-table {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  thead tr {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 5px 10px;
+    text-align: left;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  td {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+    padding: 3px 10px;
+    border-bottom: 1px solid rgba(33,38,45,0.6);
+    white-space: nowrap;
+  }
+  tr.fill-buy td:first-child { border-left: 2px solid var(--bid-bar); }
+  tr.fill-sell td:first-child { border-left: 2px solid var(--ask-bar); }
+  .tag-buy  { color: var(--bid-text); }
+  .tag-sell { color: var(--ask-text); }
+
+  /* ── PORTFOLIO ── */
+  .portfolio-panel { grid-column: 3; grid-row: 2; }
+
+  .position-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    padding: 6px 12px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+  }
+  .pos-symbol { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--text); }
+  .pos-qty    { font-family: var(--mono); font-size: 11px; color: var(--text); text-align: right; }
+  .pos-pnl    { font-family: var(--mono); font-size: 11px; text-align: right; }
+  .pos-pnl.pos { color: var(--bid-text); }
+  .pos-pnl.neg { color: var(--ask-text); }
+  .pos-sub    { font-family: var(--mono); font-size: 9px; color: var(--muted); }
+
+  .cash-row {
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border);
+    margin-top: auto;
+  }
+  .cash-label { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .cash-value { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-hi); }
+
+  /* toast */
+  .toast-container {
+    position: fixed;
+    bottom: 20px; right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .toast {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 8px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    color: var(--text);
+    opacity: 1;
+    transition: opacity 0.4s;
+  }
+  .toast.bid-toast { border-left: 3px solid var(--bid-bar); }
+  .toast.ask-toast { border-left: 3px solid var(--ask-bar); }
+  .toast.err-toast { border-left: 3px solid var(--ask-bar); color: var(--ask-text); }
+  .toast.fade { opacity: 0; }
+
+  /* login overlay */
+  .login-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13,17,23,0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+  }
+  .login-box {
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    padding: 32px;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .login-title {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: 0.08em;
+  }
+  .login-title span { color: var(--accent-hi); }
+  .login-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .login-field { display: flex; flex-direction: column; gap: 6px; }
+  .login-field label { font-family: var(--mono); font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
+  .login-field input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 12px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.1s;
+  }
+  .login-field input:focus { border-color: var(--accent); }
+  .login-btn {
+    padding: 10px;
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .login-btn:hover { background: var(--accent-hi); }
+
+  /* ── ACTIVE ORDERS ── */
+  .orders-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .orders-section-title {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .active-order-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    padding: 4px 12px;
+    gap: 8px;
+    border-bottom: 1px solid rgba(33,38,45,0.4);
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    transition: background 0.1s;
+  }
+  .active-order-row:hover { background: rgba(255,255,255,0.02); }
+  .order-side-tag {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 1px 4px;
+  }
+  .order-side-tag.buy  { color: var(--bid-text); background: var(--bid); }
+  .order-side-tag.sell { color: var(--ask-text); background: var(--ask); }
+  .order-detail { color: var(--text); }
+  .order-leaves { color: var(--muted); text-align: right; }
+  .cancel-x {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    border: 1px solid transparent;
+    background: none;
+    transition: all 0.1s;
+    line-height: 1;
+  }
+  .cancel-x:hover { color: var(--ask-text); border-color: var(--ask-bar); }
+
+  /* ── KEYBOARD HINTS ── */
+  .shortcuts-hint {
+    position: fixed;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--muted);
+    opacity: 0.5;
+    z-index: 10;
+    pointer-events: none;
+  }
+  .shortcut-key {
+    display: inline-block;
+    padding: 1px 5px;
+    border: 1px solid var(--border-hi);
+    border-radius: 2px;
+    font-size: 9px;
+    color: var(--text);
+    margin-right: 3px;
+  }
+</style>
+</head>
+<body>
+
+<!-- LOGIN OVERLAY -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div>
+      <div class="login-title"><span>EXCH</span> — Simulated Exchange</div>
+      <div class="login-sub" style="margin-top:6px;">Enter your participant name to join the session.</div>
+    </div>
+    <div class="login-field">
+      <label>Participant</label>
+      <input type="text" id="participantInput" placeholder="e.g. trader_1" maxlength="20" autocomplete="off">
+    </div>
+    <div class="login-field">
+      <label>Server</label>
+      <input type="text" id="serverInput" placeholder="ws://localhost:9001" value="ws://localhost:9001">
+    </div>
+    <button class="login-btn" id="connectBtn">Connect →</button>
+  </div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-logo">EX<span>CH</span></div>
+  <div class="instrument-tabs" id="instrumentTabs"></div>
+  <div class="topbar-status">
+    <div class="status-dot offline" id="statusDot"></div>
+    <span id="statusText">disconnected</span>
+    <span>·</span>
+    <span class="participant-label">as <span id="participantDisplay">—</span></span>
+  </div>
+</div>
+
+<!-- WORKSPACE -->
+<div class="workspace">
+
+  <!-- ORDER BOOK -->
+  <div class="panel book-panel">
+    <div class="panel-header">
+      <span class="panel-title">Order Book</span>
+      <span class="panel-meta" id="bookSymbol">—</span>
+    </div>
+    <div class="book-col-headers">
+      <span class="book-col-header">Price</span>
+      <span class="book-col-header" style="text-align:right">Qty</span>
+      <span class="book-col-header" style="text-align:right">Total</span>
+    </div>
+    <div class="book-side asks" id="asksContainer"></div>
+    <div class="book-spread-row">
+      <span class="last-price" id="lastPrice">—</span>
+      <span class="spread-label">spd</span>
+      <span class="spread-value" id="spreadValue">—</span>
+    </div>
+    <div class="book-side bids" id="bidsContainer"></div>
+  </div>
+
+  <!-- MAIN / CHART -->
+  <div class="panel main-panel">
+    <div class="instrument-bar" id="instrumentBar">
+      <div class="inst-stat"><div class="inst-stat-label">Last</div><div class="inst-stat-value" id="statLast">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">Chg</div><div class="inst-stat-value" id="statChg">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">Vol</div><div class="inst-stat-value" id="statVol">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">High</div><div class="inst-stat-value" id="statHigh">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">Low</div><div class="inst-stat-value" id="statLow">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">Bid</div><div class="inst-stat-value" id="statBid" style="color:var(--bid-text)">—</div></div>
+      <div class="inst-stat"><div class="inst-stat-label">Ask</div><div class="inst-stat-value" id="statAsk" style="color:var(--ask-text)">—</div></div>
+    </div>
+    <div class="chart-area">
+      <canvas id="priceChart"></canvas>
+      <div class="chart-empty" id="chartEmpty">
+        <div class="chart-empty-icon">⌁</div>
+        <div class="chart-empty-text">awaiting trades</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ORDER ENTRY -->
+  <div class="panel entry-panel">
+    <div class="panel-header">
+      <span class="panel-title">Place Order</span>
+    </div>
+    <div class="side-toggle">
+      <button class="side-btn buy active" id="buyBtn" onclick="setSide('buy')">BUY</button>
+      <button class="side-btn sell" id="sellBtn" onclick="setSide('sell')">SELL</button>
+    </div>
+    <div class="entry-form">
+      <div class="field">
+        <div class="field-label">Instrument</div>
+        <select id="orderSymbol"></select>
+      </div>
+      <div class="field">
+        <div class="field-label">Order Type</div>
+        <div class="type-grid">
+          <button class="type-btn active" onclick="setType('limit')">LIMIT</button>
+          <button class="type-btn" onclick="setType('market')">MARKET</button>
+          <button class="type-btn" onclick="setType('ioc')">IOC</button>
+          <button class="type-btn" onclick="setType('fok')">FOK</button>
+        </div>
+      </div>
+      <div class="field" id="priceField">
+        <div class="field-label">Price</div>
+        <input type="number" id="priceInput" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="field">
+        <div class="field-label">Quantity</div>
+        <input type="number" id="qtyInput" placeholder="0" step="1" min="1">
+      </div>
+      <div class="field" id="stopField" style="display:none">
+        <div class="field-label">Stop Price</div>
+        <input type="number" id="stopInput" placeholder="0.00" step="0.01" min="0">
+      </div>
+    </div>
+    <button class="submit-btn" id="submitBtn" onclick="submitOrder()">PLACE BUY ORDER</button>
+  </div>
+
+  <!-- BLOTTER -->
+  <div class="panel blotter-panel">
+    <div class="panel-header">
+      <span class="panel-title">Trade Blotter</span>
+      <span class="panel-meta" id="blotterCount">0 fills</span>
+    </div>
+    <div class="blotter-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Price</th>
+            <th>Qty</th>
+            <th>Counterparty</th>
+            <th>Order ID</th>
+          </tr>
+        </thead>
+        <tbody id="blotterBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PORTFOLIO -->
+  <div class="panel portfolio-panel">
+    <div class="panel-header">
+      <span class="panel-title">Portfolio</span>
+    </div>
+    <div id="positionList" style="overflow-y:auto;"></div>
+    <div class="orders-section-header">
+      <span class="orders-section-title">Active Orders</span>
+      <span class="panel-meta" id="activeOrderCount">0</span>
+    </div>
+    <div id="activeOrdersList" style="flex:1; overflow-y:auto;"></div>
+    <div class="cash-row">
+      <span class="cash-label">Cash</span>
+      <span class="cash-value" id="cashDisplay">$100,000.00</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST -->
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="shortcuts-hint" id="shortcutsHint" style="display:none">
+  <span><span class="shortcut-key">B</span> Buy</span>
+  <span><span class="shortcut-key">S</span> Sell</span>
+  <span><span class="shortcut-key">↵</span> Submit</span>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+
+const state = {
+  participant: '',
+  ws: null,
+  connected: false,
+  instruments: ['BTC-USD', 'ETH-USD'],   // defaults; server can override
+  activeSymbol: 'BTC-USD',
+  side: 'buy',
+  orderType: 'limit',
+  books: {},       // symbol → { bids: [[p,q]], asks: [[p,q]] }
+  stats: {},       // symbol → { last, vol, high, low, open }
+  positions: {},   // symbol → { qty, avgCost }
+  cash: 100000,
+  fills: [],         // all fills (newest first)
+  priceHistory: {},  // symbol → [{t, p}]
+  activeOrders: [],  // resting orders for this participant
+  TICK_SCALE: 100
+};
+
+// ── CHART ──────────────────────────────────────────────────────────────────
+
+const canvas = document.getElementById('priceChart');
+const ctx = canvas.getContext('2d');
+let animFrame = null;
+
+function resizeCanvas() {
+  const area = canvas.parentElement;
+  canvas.width  = area.clientWidth  * devicePixelRatio;
+  canvas.height = area.clientHeight * devicePixelRatio;
+  canvas.style.width  = area.clientWidth  + 'px';
+  canvas.style.height = area.clientHeight + 'px';
+  drawChart();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function drawChart() {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+  const hist = state.priceHistory[state.activeSymbol] || [];
+  if (hist.length < 2) return;
+  document.getElementById('chartEmpty').style.display = 'none';
+
+  const prices = hist.map(h => h.p);
+  const minP = Math.min(...prices) * 0.9995;
+  const maxP = Math.max(...prices) * 1.0005;
+  const range = maxP - minP || 1;
+
+  const PAD_L = 10, PAD_R = 60, PAD_T = 20, PAD_B = 30;
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+
+  function xOf(i) { return PAD_L + (i / (hist.length - 1)) * plotW; }
+  function yOf(p) { return PAD_T + (1 - (p - minP) / range) * plotH; }
+
+  // grid lines
+  ctx.strokeStyle = 'rgba(33,38,45,0.8)';
+  ctx.lineWidth = 1;
+  const GRID_LINES = 5;
+  for (let i = 0; i <= GRID_LINES; i++) {
+    const y = PAD_T + (i / GRID_LINES) * plotH;
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + plotW, y); ctx.stroke();
+    const price = maxP - (i / GRID_LINES) * range;
+    ctx.fillStyle = 'rgba(125,133,144,0.7)';
+    ctx.font = `${10 * devicePixelRatio}px JetBrains Mono, monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText(price.toFixed(2), W - 4, y + 4 * devicePixelRatio);
+  }
+
+  // fill gradient
+  const grad = ctx.createLinearGradient(0, PAD_T, 0, PAD_T + plotH);
+  const last = hist[hist.length - 1].p;
+  const first = hist[0].p;
+  const color = last >= first ? '46,160,67' : '248,81,73';
+  grad.addColorStop(0, `rgba(${color},0.25)`);
+  grad.addColorStop(1, `rgba(${color},0.0)`);
+
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), yOf(hist[0].p));
+  for (let i = 1; i < hist.length; i++) ctx.lineTo(xOf(i), yOf(hist[i].p));
+  ctx.lineTo(xOf(hist.length - 1), PAD_T + plotH);
+  ctx.lineTo(xOf(0), PAD_T + plotH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // line
+  ctx.beginPath();
+  ctx.strokeStyle = `rgb(${color})`;
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  ctx.lineJoin = 'round';
+  ctx.moveTo(xOf(0), yOf(hist[0].p));
+  for (let i = 1; i < hist.length; i++) ctx.lineTo(xOf(i), yOf(hist[i].p));
+  ctx.stroke();
+
+  // last price dot
+  const lx = xOf(hist.length - 1), ly = yOf(last);
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3 * devicePixelRatio, 0, Math.PI * 2);
+  ctx.fillStyle = `rgb(${color})`;
+  ctx.fill();
+}
+
+// ── ORDER BOOK RENDER ──────────────────────────────────────────────────────
+
+function renderBook() {
+  const book = state.books[state.activeSymbol];
+  if (!book) { clearBook(); return; }
+
+  const asks = [...book.asks].sort((a, b) => b[0] - a[0]).slice(0, 14);
+  const bids = [...book.bids].sort((a, b) => b[0] - a[0]).slice(0, 14);
+
+  const maxAskQ = asks.reduce((m, r) => Math.max(m, r[1]), 0) || 1;
+  const maxBidQ = bids.reduce((m, r) => Math.max(m, r[1]), 0) || 1;
+
+  function buildRows(levels, side, maxQ) {
+    let cumulative = 0;
+    return levels.map(([p, q]) => {
+      cumulative += q;
+      const barPct = (q / maxQ) * 100;
+      return `<div class="book-row" onclick="clickBookRow(${p})" data-price="${p}">
+        <div class="book-row-bar" style="width:${barPct.toFixed(1)}%"></div>
+        <div class="book-row-price">${(p / state.TICK_SCALE).toFixed(2)}</div>
+        <div class="book-row-qty">${q.toLocaleString()}</div>
+        <div class="book-row-total">${cumulative.toLocaleString()}</div>
+      </div>`;
+    }).join('');
+  }
+
+  document.getElementById('asksContainer').innerHTML = buildRows(asks, 'ask', maxAskQ);
+  document.getElementById('bidsContainer').innerHTML = buildRows(bids, 'bid', maxBidQ);
+
+  // spread
+  const bestAsk = book.asks.length ? Math.min(...book.asks.map(r => r[0])) : null;
+  const bestBid = book.bids.length ? Math.max(...book.bids.map(r => r[0])) : null;
+  if (bestAsk && bestBid) {
+    document.getElementById('spreadValue').textContent = ((bestAsk - bestBid) / state.TICK_SCALE).toFixed(2);
+    document.getElementById('statBid').textContent = (bestBid / state.TICK_SCALE).toFixed(2);
+    document.getElementById('statAsk').textContent = (bestAsk / state.TICK_SCALE).toFixed(2);
+  }
+  document.getElementById('bookSymbol').textContent = state.activeSymbol;
+}
+
+function clearBook() {
+  document.getElementById('asksContainer').innerHTML = '';
+  document.getElementById('bidsContainer').innerHTML = '';
+}
+
+function flashRow(price) {
+  const rows = document.querySelectorAll('.book-row');
+  rows.forEach(r => {
+    if (parseInt(r.dataset.price) === price) {
+      r.classList.remove('flashing');
+      void r.offsetWidth;
+      r.classList.add('flashing');
+      setTimeout(() => r.classList.remove('flashing'), 500);
+    }
+  });
+}
+
+// ── STATS BAR ─────────────────────────────────────────────────────────────
+
+function renderStats() {
+  const s = state.stats[state.activeSymbol] || {};
+  const last  = s.last  ? (s.last  / state.TICK_SCALE).toFixed(2) : '—';
+  const high  = s.high  ? (s.high  / state.TICK_SCALE).toFixed(2) : '—';
+  const low   = s.low   ? (s.low   / state.TICK_SCALE).toFixed(2) : '—';
+  const chg   = (s.last && s.open) ? ((s.last - s.open) / state.TICK_SCALE).toFixed(2) : '—';
+  const chgPct= (s.last && s.open) ? (((s.last - s.open) / s.open) * 100).toFixed(2) : null;
+
+  document.getElementById('statLast').textContent = last;
+  document.getElementById('statHigh').textContent = high;
+  document.getElementById('statLow').textContent  = low;
+  document.getElementById('statVol').textContent  = (s.vol || 0).toLocaleString();
+
+  const chgEl = document.getElementById('statChg');
+  if (chgPct !== null) {
+    const pos = parseFloat(chg) >= 0;
+    chgEl.textContent = `${pos ? '+' : ''}${chg} (${pos ? '+' : ''}${chgPct}%)`;
+    chgEl.className = 'inst-stat-value ' + (pos ? 'up' : 'down');
+  } else {
+    chgEl.textContent = '—';
+    chgEl.className = 'inst-stat-value';
+  }
+
+  // last price display in book
+  const lastEl = document.getElementById('lastPrice');
+  if (s.last) {
+    lastEl.textContent = (s.last / state.TICK_SCALE).toFixed(2);
+    const prev = parseFloat(lastEl.dataset.prev || s.last);
+    lastEl.className = 'last-price ' + (s.last >= prev ? 'up' : 'down');
+    lastEl.dataset.prev = s.last;
+  }
+}
+
+// ── PORTFOLIO ─────────────────────────────────────────────────────────────
+
+function renderPortfolio() {
+  const list = document.getElementById('positionList');
+  const html = Object.entries(state.positions).map(([sym, pos]) => {
+    if (pos.qty === 0) return '';
+    const stat = state.stats[sym] || {};
+    const mkt = stat.last || pos.avgCost;
+    const pnl = (mkt - pos.avgCost) * pos.qty / state.TICK_SCALE;
+    const pnlCls = pnl >= 0 ? 'pos' : 'neg';
+    return `<div class="position-row">
+      <div>
+        <div class="pos-symbol">${sym}</div>
+        <div class="pos-sub">avg ${(pos.avgCost / state.TICK_SCALE).toFixed(2)}</div>
+      </div>
+      <div class="pos-qty">${pos.qty > 0 ? '+' : ''}${pos.qty}</div>
+      <div class="pos-pnl ${pnlCls}">${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(2)}</div>
+    </div>`;
+  }).join('');
+  list.innerHTML = html || `<div style="padding:16px 12px; font-family:var(--mono); font-size:11px; color:var(--muted);">No positions.</div>`;
+  document.getElementById('cashDisplay').textContent = `$${state.cash.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}`;
+}
+
+// ── ACTIVE ORDERS ─────────────────────────────────────────────────────────
+
+function renderActiveOrders() {
+  const list = document.getElementById('activeOrdersList');
+  const orders = state.activeOrders || [];
+  document.getElementById('activeOrderCount').textContent = orders.length;
+
+  if (orders.length === 0) {
+    list.innerHTML = `<div style="padding:12px; font-family:var(--mono); font-size:10px; color:var(--muted);">No active orders.</div>`;
+    return;
+  }
+
+  list.innerHTML = orders.map(o => {
+    const price = (o.price / state.TICK_SCALE).toFixed(2);
+    return `<div class="active-order-row">
+      <span class="order-side-tag ${o.side}">${o.side.toUpperCase()}</span>
+      <span class="order-detail">${price} × ${o.leaves}</span>
+      <span class="order-leaves">${o.symbol}</span>
+      <button class="cancel-x" onclick="cancelOrder(${o.id}, '${o.symbol}')" title="Cancel">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// ── BLOTTER ───────────────────────────────────────────────────────────────
+
+function renderBlotter() {
+  const tbody = document.getElementById('blotterBody');
+  const rows = state.fills.slice(0, 200).map(f => {
+    const side = f.side === 'buy' ? 'buy' : 'sell';
+    const time = new Date(f.timestamp).toLocaleTimeString('en-US', {hour12: false});
+    return `<tr class="fill-${side}">
+      <td>${time}</td>
+      <td>${f.symbol}</td>
+      <td class="tag-${side}">${side.toUpperCase()}</td>
+      <td>${(f.price / state.TICK_SCALE).toFixed(2)}</td>
+      <td>${f.qty.toLocaleString()}</td>
+      <td>${f.counterparty || '—'}</td>
+      <td style="color:var(--muted)">${f.order_id}</td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = rows;
+  document.getElementById('blotterCount').textContent = `${state.fills.length} fill${state.fills.length !== 1 ? 's' : ''}`;
+}
+
+// ── INSTRUMENT TABS ───────────────────────────────────────────────────────
+
+function renderTabs() {
+  const container = document.getElementById('instrumentTabs');
+  const sel = document.getElementById('orderSymbol');
+  container.innerHTML = state.instruments.map(sym =>
+    `<button class="instrument-tab ${sym === state.activeSymbol ? 'active' : ''}" onclick="setActiveSymbol('${sym}')">${sym}</button>`
+  ).join('');
+  sel.innerHTML = state.instruments.map(sym => `<option value="${sym}">${sym}</option>`).join('');
+  sel.value = state.activeSymbol;
+}
+
+function setActiveSymbol(sym) {
+  state.activeSymbol = sym;
+  renderTabs();
+  renderBook();
+  renderStats();
+  requestAnimationFrame(drawChart);
+}
+
+// ── ORDER FORM ────────────────────────────────────────────────────────────
+
+function setSide(s) {
+  state.side = s;
+  document.getElementById('buyBtn').className  = 'side-btn buy'  + (s === 'buy'  ? ' active' : '');
+  document.getElementById('sellBtn').className = 'side-btn sell' + (s === 'sell' ? ' active' : '');
+  const btn = document.getElementById('submitBtn');
+  btn.textContent = s === 'buy' ? 'PLACE BUY ORDER' : 'PLACE SELL ORDER';
+  btn.className = 'submit-btn' + (s === 'sell' ? ' sell-mode' : '');
+}
+
+function setType(t) {
+  state.orderType = t;
+  document.querySelectorAll('.type-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById('priceField').style.display = (t === 'market') ? 'none' : '';
+  document.getElementById('stopField').style.display  = (t === 'stop')   ? ''     : 'none';
+}
+
+function clickBookRow(priceTick) {
+  document.getElementById('priceInput').value = (priceTick / state.TICK_SCALE).toFixed(2);
+}
+
+// ── WEBSOCKET ─────────────────────────────────────────────────────────────
+
+function connect(url, participant) {
+  state.participant = participant;
+  document.getElementById('participantDisplay').textContent = participant;
+
+  try {
+    state.ws = new WebSocket(url);
+  } catch(e) {
+    toast('Invalid WebSocket URL', 'err');
+    return;
+  }
+
+  state.ws.onopen = () => {
+    state.connected = true;
+    setStatus(true);
+    send({ type: 'join', participant });
+    toast('Connected to exchange', 'bid');
+  };
+
+  state.ws.onclose = () => {
+    state.connected = false;
+    setStatus(false);
+    toast('Disconnected from exchange', 'err');
+    // reconnect in 3s
+    setTimeout(() => connect(url, participant), 3000);
+  };
+
+  state.ws.onerror = () => {
+    toast('Connection error', 'err');
+  };
+
+  state.ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    handleMessage(msg);
+  };
+}
+
+function send(obj) {
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    state.ws.send(JSON.stringify(obj));
+  }
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+
+    case 'instruments':
+      state.instruments = msg.symbols;
+      state.activeSymbol = msg.symbols[0];
+      msg.symbols.forEach(s => {
+        if (!state.books[s]) state.books[s] = { bids: [], asks: [] };
+        if (!state.stats[s]) state.stats[s] = { last: 0, vol: 0, high: 0, low: 0, open: 0 };
+        if (!state.priceHistory[s]) state.priceHistory[s] = [];
+        if (!state.positions[s]) state.positions[s] = { qty: 0, avgCost: 0 };
+      });
+      renderTabs();
+      break;
+
+    case 'book_snapshot':
+      state.books[msg.symbol] = { bids: msg.bids, asks: msg.asks };
+      if (msg.symbol === state.activeSymbol) renderBook();
+      break;
+
+    case 'book_update':
+      if (!state.books[msg.symbol]) break;
+      applyBookDelta(msg.symbol, msg.side, msg.price, msg.qty);
+      if (msg.symbol === state.activeSymbol) renderBook();
+      break;
+
+    case 'trade':
+      // trade = fill that happened (public)
+      const s = state.stats[msg.symbol] || {};
+      s.last = msg.price;
+      s.vol  = (s.vol || 0) + msg.qty;
+      s.high = s.high ? Math.max(s.high, msg.price) : msg.price;
+      s.low  = s.low  ? Math.min(s.low, msg.price)  : msg.price;
+      if (!s.open) s.open = msg.price;
+      state.stats[msg.symbol] = s;
+
+      const hist = state.priceHistory[msg.symbol] = state.priceHistory[msg.symbol] || [];
+      hist.push({ t: Date.now(), p: msg.price / state.TICK_SCALE });
+      if (hist.length > 400) hist.shift();
+
+      if (msg.symbol === state.activeSymbol) {
+        renderStats();
+        flashRow(msg.price);
+        requestAnimationFrame(drawChart);
+      }
+      break;
+
+    case 'fill':
+      // private fill for this participant
+      const fill = {
+        ...msg,
+        timestamp: msg.timestamp || Date.now()
+      };
+      state.fills.unshift(fill);
+
+      // update position
+      const pos = state.positions[msg.symbol] || { qty: 0, avgCost: 0 };
+      if (msg.side === 'buy') {
+        const totalCost = pos.avgCost * pos.qty + msg.price * msg.qty;
+        pos.qty += msg.qty;
+        pos.avgCost = pos.qty > 0 ? totalCost / pos.qty : 0;
+        state.cash -= (msg.price / state.TICK_SCALE) * msg.qty;
+      } else {
+        state.cash += (msg.price / state.TICK_SCALE) * msg.qty;
+        pos.qty -= msg.qty;
+        if (pos.qty < 0) { pos.qty = 0; pos.avgCost = 0; } // guard
+      }
+      state.positions[msg.symbol] = pos;
+
+      renderBlotter();
+      renderPortfolio();
+      toast(`Filled ${msg.side.toUpperCase()} ${msg.qty} ${msg.symbol} @ ${(msg.price / state.TICK_SCALE).toFixed(2)}`, msg.side === 'buy' ? 'bid' : 'ask');
+      break;
+
+    case 'order_ack':
+      toast(`Order accepted · ID ${msg.order_id}`, 'bid');
+      break;
+
+    case 'order_reject':
+      toast(`Rejected: ${msg.reason}`, 'err');
+      break;
+
+    case 'active_orders':
+      state.activeOrders = msg.orders || [];
+      renderActiveOrders();
+      break;
+
+    case 'order_cancelled':
+      toast(`Order ${msg.order_id} cancelled`, 'bid');
+      break;
+
+    case 'error':
+      toast(msg.message, 'err');
+      break;
+  }
+}
+
+function applyBookDelta(symbol, side, price, qty) {
+  const book = state.books[symbol];
+  const arr  = side === 'bid' ? book.bids : book.asks;
+  const idx  = arr.findIndex(r => r[0] === price);
+  if (qty === 0) {
+    if (idx >= 0) arr.splice(idx, 1);
+  } else {
+    if (idx >= 0) arr[idx][1] = qty;
+    else arr.push([price, qty]);
+  }
+}
+
+// ── ORDER SUBMISSION ──────────────────────────────────────────────────────
+
+function submitOrder() {
+  if (!state.connected) { toast('Not connected', 'err'); return; }
+
+  const symbol = document.getElementById('orderSymbol').value;
+  const priceVal = parseFloat(document.getElementById('priceInput').value);
+  const qty   = parseInt(document.getElementById('qtyInput').value);
+  const type  = state.orderType;
+
+  if (!qty || qty <= 0) { toast('Enter a valid quantity', 'err'); return; }
+  if (type !== 'market' && (isNaN(priceVal) || priceVal <= 0)) { toast('Enter a valid price', 'err'); return; }
+
+  const order = {
+    type: 'order',
+    participant: state.participant,
+    symbol,
+    side: state.side,
+    order_type: type,
+    qty,
+    price: type !== 'market' ? Math.round(priceVal * state.TICK_SCALE) : undefined,
+    stop_price: type === 'stop' ? Math.round(parseFloat(document.getElementById('stopInput').value) * state.TICK_SCALE) : undefined
+  };
+
+  send(order);
+  document.getElementById('qtyInput').value = '';
+}
+
+function cancelOrder(orderId, symbol) {
+  if (!state.connected) { toast('Not connected', 'err'); return; }
+  send({ type: 'cancel', order_id: orderId, symbol: symbol });
+}
+
+// ── STATUS / TOAST ────────────────────────────────────────────────────────
+
+function setStatus(online) {
+  document.getElementById('statusDot').className  = 'status-dot' + (online ? '' : ' offline');
+  document.getElementById('statusText').textContent = online ? 'live' : 'disconnected';
+}
+
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type === 'bid' ? 'bid-toast' : type === 'ask' ? 'ask-toast' : 'err-toast');
+  el.textContent = msg;
+  document.getElementById('toastContainer').prepend(el);
+  setTimeout(() => { el.classList.add('fade'); setTimeout(() => el.remove(), 400); }, 3000);
+}
+
+// ── DEMO MODE (no server) ─────────────────────────────────────────────────
+
+function startDemo() {
+  // seed books with realistic looking data
+  const instruments = ['BTC-USD', 'ETH-USD'];
+  const basePrices  = { 'BTC-USD': 6800000, 'ETH-USD': 350000 }; // ticks * 100
+
+  instruments.forEach(sym => {
+    state.books[sym]       = { bids: [], asks: [] };
+    state.stats[sym]       = { last: basePrices[sym], vol: 0, high: basePrices[sym], low: basePrices[sym], open: basePrices[sym] };
+    state.priceHistory[sym]= [];
+    state.positions[sym]   = { qty: 0, avgCost: 0 };
+  });
+  state.instruments  = instruments;
+  state.activeSymbol = instruments[0];
+  renderTabs();
+
+  function seedBook(sym) {
+    const base = basePrices[sym];
+    const book  = state.books[sym];
+    book.bids = [];
+    book.asks = [];
+    for (let i = 1; i <= 14; i++) {
+      const bidP = base - i * 100;
+      const askP = base + i * 100;
+      const qty  = Math.floor(50 + Math.random() * 200);
+      book.bids.push([bidP, qty]);
+      book.asks.push([askP, Math.floor(50 + Math.random() * 200)]);
+    }
+  }
+  instruments.forEach(seedBook);
+  renderBook(); renderStats();
+
+  // random walk
+  setInterval(() => {
+    instruments.forEach(sym => {
+      const book = state.books[sym];
+      const s    = state.stats[sym];
+      const delta = (Math.random() - 0.5) * 200;
+      basePrices[sym] = Math.max(1000, basePrices[sym] + delta);
+      const base = basePrices[sym];
+
+      s.last = Math.round(base);
+      s.vol += Math.floor(Math.random() * 5);
+      s.high = Math.max(s.high, s.last);
+      s.low  = Math.min(s.low,  s.last);
+
+      seedBook(sym);
+      const hist = state.priceHistory[sym];
+      hist.push({ t: Date.now(), p: s.last / state.TICK_SCALE });
+      if (hist.length > 400) hist.shift();
+
+      if (sym === state.activeSymbol) {
+        renderBook(); renderStats();
+        requestAnimationFrame(drawChart);
+      }
+    });
+  }, 800);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────
+
+document.getElementById('connectBtn').addEventListener('click', () => {
+  const name = document.getElementById('participantInput').value.trim();
+  const url  = document.getElementById('serverInput').value.trim();
+  if (!name) { toast('Enter a participant name', 'err'); return; }
+  document.getElementById('loginOverlay').style.display = 'none';
+  renderPortfolio();
+  if (!url || url === 'demo') {
+    startDemo();
+    setStatus(true);
+    document.getElementById('participantDisplay').textContent = name;
+    state.participant = name;
+    toast('Demo mode — no server connected', 'bid');
+  } else {
+    connect(url, name);
+  }
+  document.getElementById('shortcutsHint').style.display = '';
+});
+
+document.getElementById('participantInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('connectBtn').click();
+});
+
+document.getElementById('serverInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('connectBtn').click();
+});
+
+// keyboard shortcuts
+document.addEventListener('keydown', e => {
+  if (document.getElementById('loginOverlay').style.display !== 'none') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === 'b' || e.key === 'B') setSide('buy');
+  if (e.key === 's' || e.key === 'S') setSide('sell');
+  if (e.key === 'Enter') submitOrder();
+});
+
+resizeCanvas();
+</script>
+</body>
+</html>

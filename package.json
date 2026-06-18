@@ -1,0 +1,23 @@
+{
+    "name": "exchange-server",
+    "version": "1.0.0",
+    "description": "EXCH — Self-hosted simulated exchange trading terminal",
+    "main": "server.js",
+    "bin": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "build": "npx -y @yao-pkg/pkg@5.12.0 . --targets node20-win-x64 --output exchange.exe --compress GZip"
+    },
+    "pkg": {
+        "assets": [
+            "design.html",
+            "engine.js"
+        ],
+        "targets": [
+            "node20-win-x64"
+        ]
+    },
+    "dependencies": {
+        "ws": "^8.18.0"
+    }
+}
